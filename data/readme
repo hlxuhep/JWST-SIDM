@@ -1,0 +1,24 @@
+a few click away in MAST:
+
+MISSION:    JWST
+FILTER:     OPAQUE
+INSTRUMENT: NIRSpec
+
+ranked by exposure
+
+Data log:
+jw01121112001_02102_00001_nrs2  :  large exposure, primary data to use
+jw02769002001_03102_00001_nrs2  :  small exposure to test code
+jw01121158001_02102_00001_nrs2  :  hopefully without huge events
+
+From the order in MAST:
+jw01121142001_02102_00002_nrs2  :  lowest dark current * 
+jw01121142001_02102_00001_nrs2
+
+candidate with least DC:
+jw01121146001_02102_00002_nrs2
+jw01121142001_02102_00002_nrs2
+
+candidate with median DC and more pixels survived pipeline and mask:
+jw01121138001_02102_00002_nrs2
+jw01121152001_02102_00002_nrs2

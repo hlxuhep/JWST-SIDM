@@ -1,0 +1,7 @@
+The jwst_light_cdte and jwst_light_hgte:
+
+DM-e cross section:   1e-35 cm^2
+Mass              :   First row
+Exposure          :   1 kg-yr
+
+Index is for the mass from 1 MeV to 10 GeV, in unit of GeV, log-step, from 0 to 40.
