@@ -190,6 +190,82 @@ def dRdEe_halo(Ee, sigma_n, mDM):
 
     return rate
 
+# --- Diagnostics: dP/dEe vs Ee at fixed nuclear momentum transfer q_N ---
+Z_ion = {"hg": 2.0, "cd": 2.0, "te": 6.0}
+
+def dP_dEe_fixed_qN(Ee, qN, T, Gamma=None):
+    """Soft-limit Migdal excitation probability density dP/dEe at fixed q_N.
+
+    Ee : electronic excitation energy (array or scalar)
+    qN : nuclear momentum transfer (scalar)
+    T  : target species key: 'hg', 'cd', or 'te'
+
+    Implements
+        dP/dEe = (2 alpha / (3 pi^2 Ee^4)) * (Z_ion^2 v_N^2) * \int dk k^2 Im[-1/eps(k,Ee)]
+    with v_N = qN / mN.
+    """
+    Ee = np.asarray(Ee, dtype=float)
+
+    # Build a 2D grid for broadcasting: Ee along axis 0, k along axis 1
+    eps_k = lindhard_epsilon(Ee[..., None], q_grid[None, :], Gamma=None if Gamma is None else np.asarray(Gamma, dtype=float)[..., None])
+    Im_minus_inv_eps = np.imag(-1.0 / eps_k)
+
+    # I_k(Ee) = \int dk k^2 Im[-1/eps(k,Ee)]
+    I_k = np.trapz((q_grid[None, :] ** 2) * Im_minus_inv_eps, q_grid, axis=-1)
+
+    pref = 2.0 * nu.aEM * I_k / (3.0 * np.pi**2 * Ee**4)
+
+    mN = A[T] * nu.AMU
+    vN_sq = (qN / mN) ** 2
+
+    return pref * (Z_ion[T] ** 2) * vN_sq
+
+def plot_dP_dEe_vs_Ee_fixed_qN(mDM_plot=1.0 * nu.GeV):
+    """Save dP/dEe(Ee) curves for q_N = (0.1..1.0) * mDM_plot * v0."""
+    out_dir = Path('../data/binned_signal_halo_migdal_lindhard')
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # q_N scan: 0.1, 0.2, ..., 1.0 times mDM * v0
+    factors = np.arange(0.1, 1.01, 0.1)
+    qN_list = factors * mDM_plot * v0
+
+    # Ee grid for plotting (start at the band gap to avoid the unphysical Ee->0 divergence)
+    Ee_plot = np.linspace(energy_gap, E_max, 600)
+
+    for T in ("hg", "cd", "te"):
+        fig, ax = plt.subplots()
+        for fac, qN in zip(factors, qN_list):
+            dP = dP_dEe_fixed_qN(Ee_plot, qN, T)
+            ax.plot(Ee_plot / nu.eV, dP * nu.eV, label=rf"$q_N={fac:.1f}\, m_\chi v_0$")
+
+        ax.set_xlabel(r"$E_e\ \mathrm{[eV]}$")
+        ax.set_ylabel(r"$\mathrm{d}P/\mathrm{d}E_e\ \mathrm{[1/eV]}$")
+        ax.set_title(rf"$\mathrm{{d}}P/\mathrm{{d}}E_e$ vs $E_e$ (fixed $q_N$) — {T.upper()}")
+        ax.set_yscale('log')
+        ax.legend(fontsize=8)
+        fig.tight_layout()
+
+        fig.savefig(out_dir / f"dP_dEe_vs_Ee_fixed_qN_{T}.png")
+        plt.close(fig)
+
+    # Also save a combined HgCdTe-cell style curve using mass-fraction weights
+    fig, ax = plt.subplots()
+    for fac, qN in zip(factors, qN_list):
+        dP_hg = dP_dEe_fixed_qN(Ee_plot, qN, "hg")
+        dP_cd = dP_dEe_fixed_qN(Ee_plot, qN, "cd")
+        dP_te = dP_dEe_fixed_qN(Ee_plot, qN, "te")
+        dP_mix = weight["hg"] * dP_hg + weight["cd"] * dP_cd + weight["te"] * dP_te
+        ax.plot(Ee_plot / nu.eV, dP_mix * nu.eV, label=rf"$q_N={fac:.1f}\, m_\chi v_0$")
+
+    ax.set_xlabel(r"$E_e\ \mathrm{[eV]}$")
+    ax.set_ylabel(r"$\mathrm{d}P/\mathrm{d}E_e\ \mathrm{[1/eV]}$")
+    ax.set_title(r"$\mathrm{d}P/\mathrm{d}E_e$ vs $E_e$ (fixed $q_N$) — HgCdTe mix")
+    ax.set_yscale('log')
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_dir / "dP_dEe_vs_Ee_fixed_qN_mix.png")
+    plt.close(fig)
+
 # Charge Yield:
 def charge_yield(Ee, Q):
     if Ee < energy_gap:
@@ -255,6 +331,8 @@ def compute(j):
     return 0
 
 if __name__ == "__main__":
+    # Diagnostic plots: dP/dEe vs Ee at fixed q_N values
+    plot_dP_dEe_vs_Ee_fixed_qN(mDM_plot=1.0 * nu.GeV)
     # Mass index array for parallel computation
     arr = np.arange(n_m, dtype=int)
 
