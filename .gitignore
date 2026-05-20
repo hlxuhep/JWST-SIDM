@@ -1,8 +1,7 @@
 /data/JWST/
-/Data_Processing_Pipeline/
 /DaMaSCUS_Shielding_Simulation/
-/mask/
-
+/DM_Rate_Integration_dev/
+/retired/
 # OS / Editor
 .DS_Store
 Thumbs.db
