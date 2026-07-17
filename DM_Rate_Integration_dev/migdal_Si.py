@@ -1,7 +1,7 @@
 """Si Migdal spectra from C.Si137, QEdark, and a Lindhard estimate.
 
-Full run on the 5950X:
-    python migdal_Si.py --jobs 32 --qedark /path/to/QEdark-python/Si_f2.txt
+Full run:
+    python migdal_Si.py --jobs 32
 
 Lightweight check:
     python migdal_Si.py --smoke
@@ -38,7 +38,9 @@ except ImportError:
 
 
 HERE = Path(__file__).resolve().parent
-FF_DIR = HERE.parent / "data/form_factors"
+DATA_DIR = HERE.parent / "data"
+FF_DIR = DATA_DIR / "form_factors"
+QD_FILE = DATA_DIR / "QEdark/Si_f2.txt"
 
 # Silicon and halo inputs
 Z = 14.0
@@ -89,7 +91,7 @@ class FF:
 
 
 def qd_path(given=None):
-    """Locate the old 900 x 500 QEdark Si table."""
+    """Locate the bundled 900 x 500 QEdark Si table."""
     if given:
         path = Path(given).expanduser().resolve()
         if path.is_file():
@@ -98,14 +100,13 @@ def qd_path(given=None):
 
     env = os.environ.get("QEDARK_SI_F2")
     choices = [
+        QD_FILE,
         Path(env).expanduser() if env else None,
-        FF_DIR / "Si_f2.txt",
-        Path.home() / "Documents/2023-1/QEdark-main/QEdark-python/Si_f2.txt",
     ]
     for path in choices:
         if path and path.is_file():
             return path.resolve()
-    raise FileNotFoundError("QEdark Si_f2.txt not found; use --qedark PATH")
+    raise FileNotFoundError(f"Bundled QEdark table not found: {QD_FILE}")
 
 
 def load_ff(path, name, nq=None, ne=None, half=0.1):
@@ -450,7 +451,7 @@ def smoke(qedark=None):
 
 def get_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--qedark", help="path to QEdark Si_f2.txt")
+    parser.add_argument("--qedark", help="optional QEdark Si_f2.txt override")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     parser.add_argument("--de", type=float, default=0.1, help="internal energy step [eV]")
     parser.add_argument("--emax", type=float, default=60.0, help="maximum energy [eV]")
