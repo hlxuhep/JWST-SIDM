@@ -32,19 +32,27 @@ A = {"hg": 200.59, "cd": 112.41, "te": 127.60}
 f_p, f_n = 1, 0
 
 # Lindhard Dielectric Function
-a_c   = 6.47 * nu.Angstrom
+a_c = 6.47 * nu.Angstrom
+# A zinc-blende conventional cell contains four formula units:
+# 4 * (Hg/Cd: 2 valence electrons + Te: 6 valence electrons) = 32.
 n_val = 32
-ne_c  = n_val / a_c**3
-kF    = np.power(3 * np.pi**2 * ne_c, 1/3)
-vF    = kF / nu.mElectron
-omega_p = np.sqrt(4 * np.pi * nu.aEM * ne_c / nu.mElectron)
+n_val_legacy = 32
 
-def lindhard_epsilon(Ee, q, Gamma=None):
-    """
-    Ee, q 可以是标量或 array（自然单位）。
-    ne: 价电子数密度（上一个问题我们算的那个 n_e）
-    Gamma: plasmon 宽度，论文里 Γ = 0.1 Ee
-    """
+
+def _gas(n):
+    ne = n / a_c**3
+    kf = np.power(3 * np.pi**2 * ne, 1/3)
+    vf = kf / nu.mElectron
+    wp = np.sqrt(4 * np.pi * nu.aEM * ne / nu.mElectron)
+    return ne, kf, vf, wp
+
+
+ne_c, kF, vF, omega_p = _gas(n_val)
+ne_legacy, kF_legacy, vF_legacy, omega_p_legacy = _gas(n_val_legacy)
+
+
+def _eps(Ee, q, Gamma, offset, kf, vf, wp):
+    """Lindhard epsilon with an explicit constant-term offset."""
     Ee = np.asarray(Ee, dtype=float)
     q  = np.asarray(q,  dtype=float)
 
@@ -57,20 +65,30 @@ def lindhard_epsilon(Ee, q, Gamma=None):
     Ee_c  = Ee.astype(complex)
     Gam_c = Gamma.astype(complex)
 
-    # u1, u2 按 eq.(4)
-    u_common = (Ee_c + 1j * Gam_c) / (q_c * vF)
-    u1 = q_c / (2.0 * kF) + u_common
-    u2 = q_c / (2.0 * kF) - u_common
+    u_common = (Ee_c + 1j * Gam_c) / (q_c * vf)
+    u1 = q_c / (2.0 * kf) + u_common
+    u2 = q_c / (2.0 * kf) - u_common
 
     def f(u):
-        # 这里的 log 是复数 log
-        return 0.5 + kF/(4.0*q_c) * (1.0 - u**2) * np.log((u + 1.0) / (u - 1.0))
+        return kf/(4.0*q_c) * (1.0 - u**2) * np.log((u + 1.0) / (u - 1.0))
 
-    f1 = f(u1)
-    f2 = f(u2)
+    bracket = offset + f(u1) + f(u2)
+    return 1.0 + 3.0 * wp**2 / (q_c**2 * vf**2) * bracket
 
-    eps = 1.0 + 3.0 * omega_p**2 / (q_c**2 * vF**2) * (f1 + f2)
-    return eps  # 一般后面要用 Im[-1/eps]
+
+def eps_legacy(Ee, q, Gamma=None):
+    """Old expression with two 1/2 terms and n_e = 32/a^3."""
+    return _eps(Ee, q, Gamma, 1.0, kF_legacy, vF_legacy, omega_p_legacy)
+
+
+def eps_new(Ee, q, Gamma=None):
+    """Single 1/2 expression with n_e = 32/a^3."""
+    return _eps(Ee, q, Gamma, 0.5, kF, vF, omega_p)
+
+
+def lindhard_epsilon(Ee, q, Gamma=None):
+    """Compatibility entry point; use the corrected expression."""
+    return eps_new(Ee, q, Gamma)
 
 # Halo DM parameters, just in case
 rho_DM  = 0.3 * nu.GeV / nu.cm**3

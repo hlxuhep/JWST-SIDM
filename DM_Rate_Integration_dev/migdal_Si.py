@@ -1,4 +1,4 @@
-"""Si Migdal spectra from C.Si137, QEdark, and a Lindhard estimate.
+"""Si Migdal spectra from C.Si137, QEDark, screened QEDark, and Lindhard.
 
 Full run:
     python migdal_Si.py --jobs 32
@@ -54,6 +54,7 @@ V_0 = 238.0 * nu.km / nu.sec
 V_E = 250.2 * nu.km / nu.sec
 V_MAX = V_ESC + V_E
 Q0 = 0.5 * nu.aEM * nu.mElectron
+MODELS = ("ours", "qedark", "qedark_scr", "lindhard")
 
 # Lindhard inputs copied from migdal_lindhard_Si.py
 LATTICE = 5.431 * nu.Angstrom
@@ -265,6 +266,13 @@ def eps_lin(e, q):
     return 1.0 + 3.0 * W_P**2 / (q**2 * V_F**2) * (f(u1) + f(u2))
 
 
+def screen_ff(ff):
+    """Apply the JWST-paper Lindhard factor on the native form-factor grid."""
+    eps = eps_lin(ff.e[None, :], ff.q[:, None])
+    f2 = ff.f2 / np.abs(eps) ** 2
+    return FF(f"{ff.name} screened", ff.q, ff.e, f2, ff.half)
+
+
 def loss_lin(e, nk=800):
     """Integral of k^2 Im[-1/epsilon], the Lindhard electronic response."""
     k = np.linspace(0.01, 8.0, nk) * nu.aEM * nu.mElectron
@@ -341,7 +349,7 @@ def sci(value):
 
 
 def save(e, raw, centers, spectra, masses, stem="migdal_Si"):
-    keys = [(model, mass) for mass in masses for model in ("ours", "qedark", "lindhard")]
+    keys = [(model, mass) for mass in masses for model in MODELS]
 
     raw_cols = [e / nu.eV]
     raw_head = ["E_eV"]
@@ -371,12 +379,22 @@ def save(e, raw, centers, spectra, masses, stem="migdal_Si"):
 
 
 def plot_all(centers, spectra, masses, sigma_n, stem="migdal_Si"):
-    colors = {"ours": "#1f77b4", "qedark": "#ff7f0e", "lindhard": "#2ca02c"}
-    labels = {"ours": "C.Si137", "qedark": "QEdark", "lindhard": "Lindhard"}
+    colors = {
+        "ours": "#1f77b4",
+        "qedark": "#ff7f0e",
+        "qedark_scr": "#9467bd",
+        "lindhard": "#2ca02c",
+    }
+    labels = {
+        "ours": "C.Si137",
+        "qedark": "QEDark",
+        "qedark_scr": r"QEDark $/|\epsilon|^2$",
+        "lindhard": "Lindhard",
+    }
     fig, axes = plt.subplots(1, len(masses), figsize=(10.0, 4.2), sharex=True, sharey=True)
     axes = np.atleast_1d(axes)
     for ax, mass in zip(axes, masses):
-        for model in ("ours", "qedark", "lindhard"):
+        for model in MODELS:
             ax.plot(
                 centers / nu.eV,
                 spectra[(model, mass)],
@@ -404,7 +422,11 @@ def plot_all(centers, spectra, masses, sigma_n, stem="migdal_Si"):
 def run(qedark=None, jobs=1, de=0.1, emax=60.0, nq=1000, nk=800, nr=400):
     ours = load_ff(FF_DIR / "C.Si137.dat", "C.Si137", 1250, 500, half=0.1)
     qdark = load_ff(qd_path(qedark), "QEdark", half=0.04)
-    tables = {"ours": ours, "qedark": qdark}
+    tables = {
+        "ours": ours,
+        "qedark": qdark,
+        "qedark_scr": screen_ff(qdark),
+    }
 
     sigma_n = 1.0e-38 * nu.cm**2
     masses = (0.1 * nu.GeV, 1.0 * nu.GeV)
@@ -433,12 +455,14 @@ def run(qedark=None, jobs=1, de=0.1, emax=60.0, nq=1000, nk=800, nr=400):
 def smoke(qedark=None):
     ours = load_ff(FF_DIR / "C.Si137.dat", "C.Si137", 1250, 500, half=0.1)
     qdark = load_ff(qd_path(qedark), "QEdark", half=0.04)
+    qdark_scr = screen_ff(qdark)
     e = 10.5 * nu.eV
     mass = 0.1 * nu.GeV
     sigma_n = 1.0e-38 * nu.cm**2
     values = {
         "ours": rate_tab(e, sigma_n, mass, ours, nq=48),
         "qedark": rate_tab(e, sigma_n, mass, qdark, nq=48),
+        "qedark_scr": rate_tab(e, sigma_n, mass, qdark_scr, nq=48),
     }
     values["lindhard"] = rate_lin(e, sigma_n, mass, loss_lin(e, nk=64), nr=48)
     shown = {name: value * e * nu.kg * nu.year for name, value in values.items()}
