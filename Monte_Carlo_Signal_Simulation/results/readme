@@ -1,6 +1,0 @@
-for DM_MCSS:
-
-file name x_y:
-x is the log scale index for DM mass from 1e-3 to 10 GeV
-y is the log scale index for cross section's relative shift from center value, from 1e-2 to 10
-first row is center value cross section
