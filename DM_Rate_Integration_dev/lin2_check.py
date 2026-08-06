@@ -1,4 +1,4 @@
-"""Compare Lin2_HgCdTe.txt with legacy and corrected Lindhard results."""
+"""Compare the legacy Lin2 table with three Lindhard calculations."""
 
 import argparse
 import os
@@ -21,7 +21,7 @@ import migdal_lindhard as ml
 
 
 HERE = Path(__file__).resolve().parent
-LIN2 = HERE.parent / "data/form_factors/Lin2_HgCdTe.txt"
+LIN2 = HERE.parent / "data/form_factors/Lin2_HgCdTe_lagacy.txt"
 QS = (0.01, 0.1, 0.5, 1.0)
 
 
@@ -66,11 +66,15 @@ def report(name, ref, got):
         )
 
 
-def panel(ax, e, q, ref, legacy, new, value):
+def panel(ax, e, q, ref, wrong, free8, free32, value):
     iq = int(np.argmin(np.abs(q - value)))
     ax.plot(e, ref[iq], color="black", lw=2.0, label="table")
-    ax.plot(e, legacy[iq], "--", color="tab:orange", lw=1.6, label="legacy")
-    ax.plot(e, new[iq], "-.", color="tab:blue", lw=1.6, label="new")
+    ax.plot(e, wrong[iq], "--", color="tab:orange", lw=1.6,
+            label="wrong result(1/2 addition)")
+    ax.plot(e, free8[iq], "-.", color="tab:blue", lw=1.6,
+            label="8 free e reproduce")
+    ax.plot(e, free32[iq], ":", color="tab:green", lw=1.8,
+            label="32 free e reproduce")
     ax.set_yscale("log")
     ax.set_xlabel(r"$E$ [eV]")
     ax.set_ylabel(r"$|\epsilon|^2$")
@@ -78,13 +82,13 @@ def panel(ax, e, q, ref, legacy, new, value):
     ax.grid(alpha=0.2)
 
 
-def draw(ref, legacy, new, output):
+def draw(ref, wrong, free8, free32, output):
     e = ml.E_grid / ml.nu.eV
     q = ml.q_grid / (ml.nu.aEM * ml.nu.mElectron)
 
     fig, axes = plt.subplots(2, 2, figsize=(10.0, 7.2), constrained_layout=True)
     for ax, value in zip(axes.flat, QS):
-        panel(ax, e, q, ref, legacy, new, value)
+        panel(ax, e, q, ref, wrong, free8, free32, value)
     axes[0, 0].legend()
     fig.savefig(output, dpi=180)
     plt.close(fig)
@@ -92,7 +96,7 @@ def draw(ref, legacy, new, output):
     outputs = [output]
     for value in QS:
         fig, ax = plt.subplots(figsize=(6.0, 4.2), constrained_layout=True)
-        panel(ax, e, q, ref, legacy, new, value)
+        panel(ax, e, q, ref, wrong, free8, free32, value)
         ax.legend()
         tag = f"{value:g}".replace(".", "p")
         path = output.with_name(f"{output.stem}_q{tag}{output.suffix}")
@@ -117,25 +121,32 @@ def main():
     if ref.shape != expected:
         raise ValueError(f"{cfg.table}: shape {ref.shape}, expected {expected}")
 
-    legacy = calc(ml.eps_legacy)
-    new = calc(ml.eps_new)
+    wrong = calc(ml.eps_legacy)
+    _, kf8, vf8, wp8 = ml._gas(8)
+    free8 = calc(lambda e, q: ml._eps(e, q, None, 0.5, kf8, vf8, wp8))
+    free32 = calc(ml.eps_new)
     print(f"grid: q={ref.shape[0]} x E={ref.shape[1]}")
     print("q: 0.01..8 alpha*m_e, dq=0.01 alpha*m_e")
     print("E: 0.05..15 eV, dE=0.05 eV")
-    print(f"table: {ref.min():.8g} .. {ref.max():.8g}")
-    report("legacy", ref, legacy)
-    report("new", ref, new)
+    print(f"table: {cfg.table}")
+    print(f"range: {ref.min():.8g} .. {ref.max():.8g}")
+    report("wrong result(1/2 addition)", ref, wrong)
+    report("8 free e reproduce", ref, free8)
+    report("32 free e reproduce", ref, free32)
     cfg.out.parent.mkdir(parents=True, exist_ok=True)
-    for output in draw(ref, legacy, new, cfg.out):
+    for output in draw(ref, wrong, free8, free32, cfg.out):
         print(f"saved: {output}")
     if cfg.save:
         cfg.save.parent.mkdir(parents=True, exist_ok=True)
-        legacy_out = cfg.save.with_name(cfg.save.name + "_legacy.txt")
-        new_out = cfg.save.with_name(cfg.save.name + "_new.txt")
-        np.savetxt(legacy_out, legacy)
-        np.savetxt(new_out, new)
-        print(f"saved: {legacy_out}")
-        print(f"saved: {new_out}")
+        wrong_out = cfg.save.with_name(cfg.save.name + "_wrong.txt")
+        free8_out = cfg.save.with_name(cfg.save.name + "_free8.txt")
+        free32_out = cfg.save.with_name(cfg.save.name + "_free32.txt")
+        np.savetxt(wrong_out, wrong)
+        np.savetxt(free8_out, free8)
+        np.savetxt(free32_out, free32)
+        print(f"saved: {wrong_out}")
+        print(f"saved: {free8_out}")
+        print(f"saved: {free32_out}")
 
 
 if __name__ == "__main__":
