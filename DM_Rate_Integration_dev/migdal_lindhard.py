@@ -110,7 +110,7 @@ def v_min(q, Ee, mDM):
 
 # Energy spectrum per mass:
 def dRdEe_halo(Ee, sigma_n, mDM, I_k=None):
-    """Differential Migdal rate dR/dEe per target mass (halo DM).
+    r"""Differential Migdal rate dR/dEe per target mass (halo DM).
 
     Ee : energy deposited into electronic excitations ("omega" in the paper)
     sigma_n : DM-nucleon reference cross section
@@ -185,7 +185,7 @@ def dRdEe_halo(Ee, sigma_n, mDM, I_k=None):
 Z_ion = {"hg": 2.0, "cd": 2.0, "te": 6.0}
 
 def dP_dEe_fixed_qN(Ee, qN, T, Gamma=None, I_k=None):
-    """Soft-limit Migdal excitation probability density dP/dEe at fixed q_N.
+    r"""Soft-limit Migdal excitation probability density dP/dEe at fixed q_N.
 
     Ee : electronic excitation energy (array or scalar)
     qN : nuclear momentum transfer (scalar)
