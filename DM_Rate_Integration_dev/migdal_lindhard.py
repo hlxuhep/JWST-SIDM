@@ -33,26 +33,13 @@ f_p, f_n = 1, 0
 
 # Lindhard Dielectric Function
 a_c = 6.47 * nu.Angstrom
-# A zinc-blende conventional cell contains four formula units:
-# 4 * (Hg/Cd: 2 valence electrons + Te: 6 valence electrons) = 32.
-n_val = 32
-n_val_legacy = 32
+ne = 32 / a_c**3
+kF = np.power(3 * np.pi**2 * ne, 1/3)
+vF = kF / nu.mElectron
+omega_p = np.sqrt(4 * np.pi * nu.aEM * ne / nu.mElectron)
 
 
-def _gas(n):
-    ne = n / a_c**3
-    kf = np.power(3 * np.pi**2 * ne, 1/3)
-    vf = kf / nu.mElectron
-    wp = np.sqrt(4 * np.pi * nu.aEM * ne / nu.mElectron)
-    return ne, kf, vf, wp
-
-
-ne_c, kF, vF, omega_p = _gas(n_val)
-ne_legacy, kF_legacy, vF_legacy, omega_p_legacy = _gas(n_val_legacy)
-
-
-def _eps(Ee, q, Gamma, offset, kf, vf, wp):
-    """Lindhard epsilon with an explicit constant-term offset."""
+def lindhard_epsilon(Ee, q, Gamma=None):
     Ee = np.asarray(Ee, dtype=float)
     q  = np.asarray(q,  dtype=float)
 
@@ -65,30 +52,23 @@ def _eps(Ee, q, Gamma, offset, kf, vf, wp):
     Ee_c  = Ee.astype(complex)
     Gam_c = Gamma.astype(complex)
 
-    u_common = (Ee_c + 1j * Gam_c) / (q_c * vf)
-    u1 = q_c / (2.0 * kf) + u_common
-    u2 = q_c / (2.0 * kf) - u_common
+    u_common = (Ee_c + 1j * Gam_c) / (q_c * vF)
+    u1 = q_c / (2.0 * kF) + u_common
+    u2 = q_c / (2.0 * kF) - u_common
 
     def f(u):
-        return kf/(4.0*q_c) * (1.0 - u**2) * np.log((u + 1.0) / (u - 1.0))
+        return kF/(4.0*q_c) * (1.0 - u**2) * np.log((u + 1.0) / (u - 1.0))
 
-    bracket = offset + f(u1) + f(u2)
-    return 1.0 + 3.0 * wp**2 / (q_c**2 * vf**2) * bracket
-
-
-def eps_legacy(Ee, q, Gamma=None):
-    """Old expression with two 1/2 terms and n_e = 32/a^3."""
-    return _eps(Ee, q, Gamma, 1.0, kF_legacy, vF_legacy, omega_p_legacy)
+    bracket = 0.5 + f(u1) + f(u2)
+    return 1.0 + 3.0 * omega_p**2 / (q_c**2 * vF**2) * bracket
 
 
-def eps_new(Ee, q, Gamma=None):
-    """Single 1/2 expression with n_e = 32/a^3."""
-    return _eps(Ee, q, Gamma, 0.5, kF, vF, omega_p)
-
-
-def lindhard_epsilon(Ee, q, Gamma=None):
-    """Compatibility entry point; use the corrected expression."""
-    return eps_new(Ee, q, Gamma)
+def loss_integral(Ee, Gamma=None):
+    """Return I(Ee) = integral dk k^2 Im[-1/epsilon(k, Ee)]."""
+    Ee = np.asarray(Ee, dtype=float)
+    Gamma = None if Gamma is None else np.asarray(Gamma, dtype=float)[..., None]
+    eps_k = lindhard_epsilon(Ee[..., None], q_grid, Gamma)
+    return np.trapezoid(q_grid**2 * np.imag(-1.0 / eps_k), q_grid, axis=-1)
 
 # Halo DM parameters, just in case
 rho_DM  = 0.3 * nu.GeV / nu.cm**3
@@ -129,7 +109,7 @@ def v_min(q, Ee, mDM):
     return Ee/q + q/2/mDM
 
 # Energy spectrum per mass:
-def dRdEe_halo(Ee, sigma_n, mDM):
+def dRdEe_halo(Ee, sigma_n, mDM, I_k=None):
     """Differential Migdal rate dR/dEe per target mass (halo DM).
 
     Ee : energy deposited into electronic excitations ("omega" in the paper)
@@ -142,11 +122,8 @@ def dRdEe_halo(Ee, sigma_n, mDM):
         dR/dEe = sum_T \int dE_N (dR_el^T/dE_N) * dP^T(E_N)/dEe ,
     with dR_el/dE_N the usual elastic nuclear recoil rate.
     """
-    # Precompute the k-integral I(Ee) = \int dk k^2 Im[-1/eps(k, Ee)]
-    # using the same momentum grid q_grid (interpreted here as k).
-    eps_k = lindhard_epsilon(Ee, q_grid)
-    Im_minus_inv_eps = np.imag(-1.0 / eps_k)  # Im[-1/eps]
-    I_k = np.trapz(q_grid**2 * Im_minus_inv_eps, q_grid)
+    if I_k is None:
+        I_k = loss_integral(Ee)
 
     # Common prefactor from dP/domega
     pref_P_common = 2.0 * nu.aEM * I_k / (3.0 * np.pi**2 * Ee**4)
@@ -175,17 +152,17 @@ def dRdEe_halo(Ee, sigma_n, mDM):
         # DM–nucleus reduced mass
         mu_N = mN * mDM / (mN + mDM)
 
-        # Maximum recoil energy for this target (from kinematics)
-        E_N_max = 2.0 * mu_N**2 * v_max**2 / mN
+        discriminant = 1.0 - 2.0 * Ee / (mu_N * v_max**2)
+        if discriminant <= 0.0:
+            continue
 
-        # Recoil energy grid for the nucleus
-        N_EN = 400
-        E_N_grid = np.linspace(0.0, E_N_max, N_EN)
-        dE_N = E_N_grid[1] - E_N_grid[0]
-
-        # Corresponding momentum transfer q_N and nuclear velocity v_N
-        q_N = np.sqrt(2.0 * mN * E_N_grid)
-        v_N_sq = 2.0 * E_N_grid / mN
+        root = np.sqrt(discriminant)
+        q_N_min = 2.0 * Ee / (v_max * (1.0 + root))
+        q_N_max = mu_N * v_max * (1.0 + root)
+        q_N = np.geomspace(q_N_min, q_N_max, 200)
+        log_q_N = np.log(q_N)
+        E_N_grid = q_N**2 / (2.0 * mN)
+        v_N_sq = (q_N / mN) ** 2
 
         # dP/dEe(E_N) using the soft-limit expression
         dP_dEe = pref_P_common * (Z_ion[T]**2) * v_N_sq
@@ -200,18 +177,14 @@ def dRdEe_halo(Ee, sigma_n, mDM):
         pref_el = (rho_DM / mDM) * N_T * mN * sigma_n / (2.0 * mu_n**2) * Z_eff**2
         integrand = pref_el * F_DM(q_N)**2 * eta_vals * dP_dEe
 
-        # Avoid 0 * inf at E_N = 0 (q_N = 0) which leads to NaN numerically:
-        # in the continuum limit the integrand -> 0 at this endpoint, so we set it explicitly.
-        integrand[0] = 0.0
-
-        rate += np.trapz(integrand, E_N_grid)
+        rate += np.trapezoid(integrand * q_N**2 / mN, log_q_N)
 
     return rate
 
 # --- Diagnostics: dP/dEe vs Ee at fixed nuclear momentum transfer q_N ---
 Z_ion = {"hg": 2.0, "cd": 2.0, "te": 6.0}
 
-def dP_dEe_fixed_qN(Ee, qN, T, Gamma=None):
+def dP_dEe_fixed_qN(Ee, qN, T, Gamma=None, I_k=None):
     """Soft-limit Migdal excitation probability density dP/dEe at fixed q_N.
 
     Ee : electronic excitation energy (array or scalar)
@@ -224,12 +197,8 @@ def dP_dEe_fixed_qN(Ee, qN, T, Gamma=None):
     """
     Ee = np.asarray(Ee, dtype=float)
 
-    # Build a 2D grid for broadcasting: Ee along axis 0, k along axis 1
-    eps_k = lindhard_epsilon(Ee[..., None], q_grid[None, :], Gamma=None if Gamma is None else np.asarray(Gamma, dtype=float)[..., None])
-    Im_minus_inv_eps = np.imag(-1.0 / eps_k)
-
-    # I_k(Ee) = \int dk k^2 Im[-1/eps(k,Ee)]
-    I_k = np.trapz((q_grid[None, :] ** 2) * Im_minus_inv_eps, q_grid, axis=-1)
+    if I_k is None:
+        I_k = loss_integral(Ee, Gamma)
 
     pref = 2.0 * nu.aEM * I_k / (3.0 * np.pi**2 * Ee**4)
 
@@ -249,11 +218,12 @@ def plot_dP_dEe_vs_Ee_fixed_qN(mDM_plot=1.0 * nu.GeV):
 
     # Ee grid for plotting (start at the band gap to avoid the unphysical Ee->0 divergence)
     Ee_plot = np.linspace(energy_gap, E_max, 600)
+    I_k_plot = loss_integral(Ee_plot)
 
     for T in ("hg", "cd", "te"):
         fig, ax = plt.subplots()
         for fac, qN in zip(factors, qN_list):
-            dP = dP_dEe_fixed_qN(Ee_plot, qN, T)
+            dP = dP_dEe_fixed_qN(Ee_plot, qN, T, I_k=I_k_plot)
             ax.plot(Ee_plot / nu.eV, dP * nu.eV, label=rf"$q_N={fac:.1f}\, m_\chi v_0$")
 
         ax.set_xlabel(r"$E_e\ \mathrm{[eV]}$")
@@ -269,9 +239,9 @@ def plot_dP_dEe_vs_Ee_fixed_qN(mDM_plot=1.0 * nu.GeV):
     # Also save a combined HgCdTe-cell style curve using mass-fraction weights
     fig, ax = plt.subplots()
     for fac, qN in zip(factors, qN_list):
-        dP_hg = dP_dEe_fixed_qN(Ee_plot, qN, "hg")
-        dP_cd = dP_dEe_fixed_qN(Ee_plot, qN, "cd")
-        dP_te = dP_dEe_fixed_qN(Ee_plot, qN, "te")
+        dP_hg = dP_dEe_fixed_qN(Ee_plot, qN, "hg", I_k=I_k_plot)
+        dP_cd = dP_dEe_fixed_qN(Ee_plot, qN, "cd", I_k=I_k_plot)
+        dP_te = dP_dEe_fixed_qN(Ee_plot, qN, "te", I_k=I_k_plot)
         dP_mix = weight["hg"] * dP_hg + weight["cd"] * dP_cd + weight["te"] * dP_te
         ax.plot(Ee_plot / nu.eV, dP_mix * nu.eV, label=rf"$q_N={fac:.1f}\, m_\chi v_0$")
 
@@ -284,25 +254,17 @@ def plot_dP_dEe_vs_Ee_fixed_qN(mDM_plot=1.0 * nu.GeV):
     fig.savefig(out_dir / "dP_dEe_vs_Ee_fixed_qN_mix.png")
     plt.close(fig)
 
-# Charge Yield:
-def charge_yield(Ee, Q):
-    if Ee < energy_gap:
-        return 0
-    else:
-        Ee_1 = epsilon * (Q - 1) + energy_gap
-        Ee_2 = epsilon * Q + energy_gap
-        if Ee < Ee_1 or Ee > Ee_2:
-            return 0.0
-        else:
-            return 1.0
+Q_bins = np.arange(1, 11)
+Q_edges = energy_gap + epsilon * np.arange(11)
+rate_E_grid = np.unique(np.concatenate((
+    Q_edges,
+    E_grid[(E_grid > Q_edges[0]) & (E_grid < Q_edges[-1])],
+)))
 
-# Electron spectrum per mass:
-def R_Q_halo(Q, sigma_n, mDM):
-    R_Q = 0
-    for Ei in E_grid:
-        cy = charge_yield(Ei, Q)
-        R_Q += dE * cy * dRdEe_halo(Ei, sigma_n, mDM)
-    return R_Q
+
+def R_Q_halo(Q, spectrum):
+    points = (rate_E_grid >= Q_edges[Q - 1]) & (rate_E_grid <= Q_edges[Q])
+    return np.trapezoid(spectrum[points], rate_E_grid[points])
 
 # JWST parameters
 pixel_mass = 1.2e-8 *nu.gram
@@ -325,18 +287,22 @@ cs_test = 1e-26 * nu.cm * nu.cm
 def compute(j):
     m = m_grid[j]
     cs = cs_test
-    nq = np.zeros(10)
-    for q in range(10):
-        print('calculating: i=' + str(j) + ' q=' + str(q) +'\n')
-        nq[q] = exposure * R_Q_halo(q+1, cs, m)
-    
-    np.savetxt('../data/binned_signal_halo_migdal_lindhard/binned_signals_Halo_'+ str(j) + '.txt', nq, header=str(m))
-
-    # Make a step plot of the binned signal and save (no display)
     out_dir = Path('../data/binned_signal_halo_migdal_lindhard')
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    Q_bins = np.arange(1, 11)
+    I_k_grid = loss_integral(rate_E_grid)
+    spectrum = np.array([
+        dRdEe_halo(Ee, cs, m, I_k)
+        for Ee, I_k in zip(rate_E_grid, I_k_grid)
+    ])
+    nq = np.array([
+        exposure * R_Q_halo(Q, spectrum)
+        for Q in Q_bins
+    ])
+
+    np.savetxt(out_dir / ('binned_signals_Halo_' + str(j) + '.txt'), nq, header=str(m))
+
+    # Make a step plot of the binned signal and save (no display)
     fig, ax = plt.subplots()
     ax.step(Q_bins, nq, where='mid')
     ax.set_xlabel(r"$Q$")

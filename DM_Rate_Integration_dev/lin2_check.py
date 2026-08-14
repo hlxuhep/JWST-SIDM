@@ -1,4 +1,4 @@
-"""Compare the legacy Lin2 table with three Lindhard calculations."""
+"""Compare the HgCdTe Lin2 table with the Lindhard calculation."""
 
 import argparse
 import os
@@ -21,7 +21,8 @@ import migdal_lindhard as ml
 
 
 HERE = Path(__file__).resolve().parent
-LIN2 = HERE.parent / "data/form_factors/Lin2_HgCdTe_lagacy.txt"
+RESULT_DIR = HERE / "result"
+LIN2 = HERE.parent / "data/form_factors/Lin2_HgCdTe.txt"
 QS = (0.01, 0.1, 0.5, 1.0)
 
 
@@ -66,15 +67,11 @@ def report(name, ref, got):
         )
 
 
-def panel(ax, e, q, ref, wrong, free8, free32, value):
+def panel(ax, e, q, ref, calculated, value):
     iq = int(np.argmin(np.abs(q - value)))
     ax.plot(e, ref[iq], color="black", lw=2.0, label="table")
-    ax.plot(e, wrong[iq], "--", color="tab:orange", lw=1.6,
-            label="wrong result(1/2 addition)")
-    ax.plot(e, free8[iq], "-.", color="tab:blue", lw=1.6,
-            label="8 free e reproduce")
-    ax.plot(e, free32[iq], ":", color="tab:green", lw=1.8,
-            label="32 free e reproduce")
+    ax.plot(e, calculated[iq], "--", color="tab:green", lw=1.8,
+            label=r"Lindhard, $n_e=32/a^3$")
     ax.set_yscale("log")
     ax.set_xlabel(r"$E$ [eV]")
     ax.set_ylabel(r"$|\epsilon|^2$")
@@ -82,34 +79,22 @@ def panel(ax, e, q, ref, wrong, free8, free32, value):
     ax.grid(alpha=0.2)
 
 
-def draw(ref, wrong, free8, free32, output):
+def draw(ref, calculated, output):
     e = ml.E_grid / ml.nu.eV
     q = ml.q_grid / (ml.nu.aEM * ml.nu.mElectron)
 
     fig, axes = plt.subplots(2, 2, figsize=(10.0, 7.2), constrained_layout=True)
     for ax, value in zip(axes.flat, QS):
-        panel(ax, e, q, ref, wrong, free8, free32, value)
+        panel(ax, e, q, ref, calculated, value)
     axes[0, 0].legend()
     fig.savefig(output, dpi=180)
     plt.close(fig)
-
-    outputs = [output]
-    for value in QS:
-        fig, ax = plt.subplots(figsize=(6.0, 4.2), constrained_layout=True)
-        panel(ax, e, q, ref, wrong, free8, free32, value)
-        ax.legend()
-        tag = f"{value:g}".replace(".", "p")
-        path = output.with_name(f"{output.stem}_q{tag}{output.suffix}")
-        fig.savefig(path, dpi=180)
-        plt.close(fig)
-        outputs.append(path)
-    return outputs
 
 
 def args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--table", type=Path, default=LIN2)
-    parser.add_argument("--out", type=Path, default=HERE / "lin2_check.png")
+    parser.add_argument("--out", type=Path, default=RESULT_DIR / "lin2_check.png")
     parser.add_argument("--save", type=Path, help="optional prefix for calculated tables")
     return parser.parse_args()
 
@@ -121,32 +106,21 @@ def main():
     if ref.shape != expected:
         raise ValueError(f"{cfg.table}: shape {ref.shape}, expected {expected}")
 
-    wrong = calc(ml.eps_legacy)
-    _, kf8, vf8, wp8 = ml._gas(8)
-    free8 = calc(lambda e, q: ml._eps(e, q, None, 0.5, kf8, vf8, wp8))
-    free32 = calc(ml.eps_new)
+    calculated = calc(ml.lindhard_epsilon)
     print(f"grid: q={ref.shape[0]} x E={ref.shape[1]}")
     print("q: 0.01..8 alpha*m_e, dq=0.01 alpha*m_e")
     print("E: 0.05..15 eV, dE=0.05 eV")
     print(f"table: {cfg.table}")
     print(f"range: {ref.min():.8g} .. {ref.max():.8g}")
-    report("wrong result(1/2 addition)", ref, wrong)
-    report("8 free e reproduce", ref, free8)
-    report("32 free e reproduce", ref, free32)
+    report("Lindhard, n_e=32/a^3", ref, calculated)
     cfg.out.parent.mkdir(parents=True, exist_ok=True)
-    for output in draw(ref, wrong, free8, free32, cfg.out):
-        print(f"saved: {output}")
+    draw(ref, calculated, cfg.out)
+    print(f"saved: {cfg.out}")
     if cfg.save:
         cfg.save.parent.mkdir(parents=True, exist_ok=True)
-        wrong_out = cfg.save.with_name(cfg.save.name + "_wrong.txt")
-        free8_out = cfg.save.with_name(cfg.save.name + "_free8.txt")
-        free32_out = cfg.save.with_name(cfg.save.name + "_free32.txt")
-        np.savetxt(wrong_out, wrong)
-        np.savetxt(free8_out, free8)
-        np.savetxt(free32_out, free32)
-        print(f"saved: {wrong_out}")
-        print(f"saved: {free8_out}")
-        print(f"saved: {free32_out}")
+        calculated_out = cfg.save.with_name(cfg.save.name + "_calculated.txt")
+        np.savetxt(calculated_out, calculated)
+        print(f"saved: {calculated_out}")
 
 
 if __name__ == "__main__":
