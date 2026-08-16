@@ -100,7 +100,8 @@ def EtaFunction(vMin, vE = v_Earth):
     return eta
 
 # To determine light or heavy mediator, just in case
-mA = 0.0
+mA = 1.0 * nu.TeV
+# mA = 0.0
 
 def F_DM(q):
     return ((nu.aEM*nu.mElectron)**2 + mA**2)/(q**2 + mA**2)
@@ -276,7 +277,7 @@ log_m_max  = 1
 n_m    = 9   # From 1e-3  to 10 GeV
 m_grid      = np.logspace(log_m_min, log_m_max, n_m) * nu.GeV
 
-cs_test = 1e-26 * nu.cm * nu.cm
+cs_test = 1e-24 * nu.cm * nu.cm
 
 # center_line = np.array([2.15504637e-23, 1.53030461e-23, 1.26359147e-23, 1.61669130e-23,
 #       2.40008514e-23, 4.03532201e-23, 6.95747264e-23, 1.40957345e-22,
