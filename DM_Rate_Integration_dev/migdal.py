@@ -1,10 +1,7 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib as mpl
 from pathlib import Path
 import natural_units as nu
 from scipy.special import erf
-from scipy.integrate import quad
 from scipy.interpolate import RegularGridInterpolator
 # multi-core/thread:
 import concurrent.futures
@@ -41,12 +38,24 @@ w_hg, w_cd, w_te = 0.7, 0.3, 1.0
 # solid state VCA (virtual crystal approximation):
 ff_full_grid = w_hg * ff_hgte_grid + w_cd * ff_cdte_grid
 
-# Interplot form factors
+# Interpolate form factors
 q_grid = np.linspace(dq, q_max, N_q)
 E_grid = np.linspace(dE, E_max, N_E)
-ff_hgte = RegularGridInterpolator((q_grid, E_grid), ff_hgte_grid)
-ff_cdte = RegularGridInterpolator((q_grid, E_grid), ff_cdte_grid)
 ff_full = RegularGridInterpolator((q_grid, E_grid), ff_full_grid)
+
+# 1908.10881: anchor the ionization form factor near q_ref and use its
+# dipole scaling below q_ref.  The crystal form factor itself scales as q^5.
+q_ref = 0.5 * nu.aEM * nu.mElectron
+q_ref_points = (
+    np.abs(q_grid - q_ref)
+    <= 0.1 * nu.aEM * nu.mElectron + 1.0e-12 * q_ref
+)
+ff_ion2_ref = np.mean(
+    8.0 * nu.aEM * nu.mElectron**2 * E_grid[None, :]
+    / q_grid[q_ref_points, None]**3
+    * ff_full_grid[q_ref_points],
+    axis=0,
+)
 
 #atomic masses
 weight = {"hg": 0.7, "cd": 0.3, "te": 1.0}
@@ -61,6 +70,7 @@ rho_DM  = 0.3 * nu.GeV / nu.cm**3
 vesc    = 544.0 * nu.km / nu.sec
 v0      = 238.0 * nu.km / nu.sec
 v_Earth = 250.2 * nu.km / nu.sec
+v_max   = vesc + v_Earth
 
 # DM speed distribution
 Nesc = np.pi * v0 * v0 * (np.sqrt(np.pi) * v0 * erf(vesc / v0) - 2 * vesc * np.exp(-vesc * vesc / v0 / v0))
@@ -85,7 +95,8 @@ def EtaFunction(vMin, vE = v_Earth):
     return eta
 
 # To determine light or heavy mediator, just in case
-mA = 0.0
+mA = 1.0 * nu.TeV
+# mA = 0.0
 
 def F_DM(q):
     return ((nu.aEM*nu.mElectron)**2 + mA**2)/(q**2 + mA**2)
@@ -95,45 +106,62 @@ def v_min(q, Ee, mDM):
 
 # Energy spectrum per mass:
 def dRdEe_halo(Ee, sigma_n, mDM):
-    integral  = 0.0
-    qe_int_grid = np.linspace(0.1, 100, 1000) * nu.eV
-    dqe = qe_int_grid[1] - qe_int_grid[0]
+    integral = 0.0
+    mu_n = nu.Reduced_Mass(nu.mProton, mDM)
+
     for target in ("hg", "cd", "te"):
-        prefactor = weight[target] * rho_DM / mDM / M_cell * nu.aEM * sigma_n * nu.mElectron**2 * (f_p * Z[target] + f_n * (A[target] - Z[target]))**2 / nu.Reduced_Mass(nu.mProton, mDM)**2
-        for qi_e in qe_int_grid:
-            mN = A[target] * nu.AMU
-            qi = qi_e * mN / nu.mElectron
-            En = qi**2 / (2.0 * mN)
-            dqi = A[target] * nu.AMU / nu.mElectron * dqe
-            vMin = v_min(qi, Ee + En, mDM)
-            if qi_e <= q_grid[0]:
-                ff_qiE = ff_full((q_grid[0], Ee)) * qi_e**2 / q_grid[0]**2   # Dipole approx
-            else:
-                ff_qiE = ff_full((qi_e, Ee))
-            
-            integral += prefactor * dqi * qi / qi_e**3 * EtaFunction(vMin) * F_DM(qi)**2 * ff_qiE
+        mN = A[target] * nu.AMU
+        mu_N = nu.Reduced_Mass(mN, mDM)
+        discriminant = 1.0 - 2.0 * Ee / (mu_N * v_max**2)
+        if discriminant <= 0.0:
+            continue
+
+        root = np.sqrt(discriminant)
+        q_N_min = 2.0 * Ee / (v_max * (1.0 + root))
+        q_N_max = mu_N * v_max * (1.0 + root)
+        q_e = np.geomspace(
+            q_N_min * nu.mElectron / mN,
+            q_N_max * nu.mElectron / mN,
+            1000,
+        )
+        q_N = q_e * mN / nu.mElectron
+        E_N = q_N**2 / (2.0 * mN)
+        eta = np.array([EtaFunction(v) for v in v_min(q_N, Ee + E_N, mDM)])
+
+        f_ion2 = np.empty_like(q_e)
+        low_q = q_e <= q_ref
+        f_ion2[low_q] = np.interp(Ee, E_grid, ff_ion2_ref) * (q_e[low_q] / q_ref)**2
+        if np.any(~low_q):
+            points = np.column_stack((q_e[~low_q], np.full(np.count_nonzero(~low_q), Ee)))
+            f_ion2[~low_q] = (
+                8.0 * nu.aEM * nu.mElectron**2 * Ee / q_e[~low_q]**3
+                * ff_full(points)
+            )
+
+        coupling = f_p * Z[target] + f_n * (A[target] - Z[target])
+        prefactor = (
+            weight[target] * rho_DM / mDM / M_cell
+            * sigma_n * coupling**2 / (8.0 * mu_n**2 * Ee)
+        )
+        integrand = (
+            prefactor * (mN / nu.mElectron) * q_N
+            * eta * F_DM(q_N)**2 * f_ion2
+        )
+        integral += np.trapezoid(integrand, q_e)
 
     return integral
 
-# Charge Yield:
-def charge_yield(Ee, Q):
-    if Ee < energy_gap:
-        return 0
-    else:
-        Ee_1 = epsilon * (Q - 1) + energy_gap
-        Ee_2 = epsilon * Q + energy_gap
-        if Ee < Ee_1 or Ee > Ee_2:
-            return 0.0
-        else:
-            return 1.0
+Q_bins = np.arange(1, 11)
+Q_edges = energy_gap + epsilon * np.arange(11)
+rate_E_grid = np.unique(np.concatenate((
+    Q_edges,
+    E_grid[(E_grid > Q_edges[0]) & (E_grid < Q_edges[-1])],
+)))
 
 # Electron spectrum per mass:
-def R_Q_halo(Q, sigma_n, mDM):
-    R_Q = 0
-    for Ei in E_grid:
-        cy = charge_yield(Ei, Q)
-        R_Q += dE * cy * dRdEe_halo(Ei, sigma_n, mDM)
-    return R_Q
+def R_Q_halo(Q, spectrum):
+    points = (rate_E_grid >= Q_edges[Q - 1]) & (rate_E_grid <= Q_edges[Q])
+    return np.trapezoid(spectrum[points], rate_E_grid[points])
 
 # JWST parameters
 pixel_mass = 1.2e-8 *nu.gram
@@ -145,7 +173,7 @@ log_m_max  = 1
 n_m    = 9   # From 1e-3  to 10 GeV
 m_grid      = np.logspace(log_m_min, log_m_max, n_m) * nu.GeV
 
-cs_test = 1e-26 * nu.cm * nu.cm
+cs_test = 1e-24 * nu.cm * nu.cm
 
 # center_line = np.array([2.15504637e-23, 1.53030461e-23, 1.26359147e-23, 1.61669130e-23,
 #       2.40008514e-23, 4.03532201e-23, 6.95747264e-23, 1.40957345e-22,
@@ -156,15 +184,16 @@ cs_test = 1e-26 * nu.cm * nu.cm
 def compute(j):
     m = m_grid[j]
     cs = cs_test
-    nq = np.zeros(10)
-    for q in range(10):
-        print('calculating: i=' + str(j) + ' q=' + str(q) +'\n')
-        nq[q] = exposure * R_Q_halo(q+1, cs, m)
-    
-    np.savetxt('../data/binned_signal_halo_migdal/binned_signals_Halo_'+ str(j) + '.txt', nq, header=str(m))
+    out_dir = Path('../data/binned_signal_halo_migdal')
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    spectrum = np.array([dRdEe_halo(Ee, cs, m) for Ee in rate_E_grid])
+    nq = np.array([exposure * R_Q_halo(Q, spectrum) for Q in Q_bins])
+
+    np.savetxt(out_dir / ('binned_signals_Halo_' + str(j) + '.txt'), nq, header=str(m))
     return 0
 
 if __name__ == "__main__":
-    arr = np.linspace(0, 8, 9, dtype=int)
+    arr = np.arange(n_m, dtype=int)
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        executor.map(compute, arr)
+        list(executor.map(compute, arr))
