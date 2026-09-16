@@ -151,8 +151,9 @@ def dRdEe_halo(Ee, sigma_n, mDM):
 
     return integral
 
-Q_bins = np.arange(1, 11)
-Q_edges = energy_gap + epsilon * np.arange(11)
+N_bins = 20
+Q_bins = np.arange(1, N_bins+1)
+Q_edges = energy_gap + epsilon * np.arange(N_bins+1)
 rate_E_grid = np.unique(np.concatenate((
     Q_edges,
     E_grid[(E_grid > Q_edges[0]) & (E_grid < Q_edges[-1])],
