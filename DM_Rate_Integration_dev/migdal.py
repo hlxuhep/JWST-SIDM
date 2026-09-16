@@ -168,9 +168,9 @@ pixel_mass = 1.2e-8 *nu.gram
 exposure_time   = 3574.278 *nu.sec * 244 / 245  # since we are using (last frame - first frame)
 exposure = pixel_mass * exposure_time
 
-log_m_min  = -3
-log_m_max  = 1
-n_m    = 9   # From 1e-3  to 10 GeV
+log_m_min  = 0
+log_m_max  = 4
+n_m    = 9   # From GeV  to 10 TeV
 m_grid      = np.logspace(log_m_min, log_m_max, n_m) * nu.GeV
 
 cs_test = 1e-24 * nu.cm * nu.cm
