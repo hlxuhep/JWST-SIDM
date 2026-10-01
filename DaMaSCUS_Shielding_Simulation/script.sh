@@ -82,31 +82,31 @@ queue_task() {
         failures+=1
     fi
 }
-queue_task 1 2.15e-29 n 0.0
 queue_task 1 2.15e-28 n 0.0
 queue_task 1 2.15e-27 n 0.0
 queue_task 1 2.15e-26 n 0.0
 queue_task 1 2.15e-25 n 0.0
-queue_task 10 3.51e-31 n 0.0
-queue_task 10 3.51e-30 n 0.0
-queue_task 10 3.51e-29 n 0.0
-queue_task 10 3.51e-28 n 0.0
-queue_task 10 3.51e-27 n 0.0
-queue_task 100 8.49e-32 n 0.0
-queue_task 100 8.49e-31 n 0.0
-queue_task 100 8.49e-30 n 0.0
-queue_task 100 8.49e-29 n 0.0
-queue_task 100 8.49e-28 n 0.0
-queue_task 1000 4.62e-31 n 0.0
-queue_task 1000 4.62e-30 n 0.0
-queue_task 1000 4.62e-29 n 0.0
-queue_task 1000 4.62e-28 n 0.0
-queue_task 1000 4.62e-27 n 0.0
-queue_task 10000 4.96e-30 n 0.0
-queue_task 10000 4.96e-29 n 0.0
-queue_task 10000 4.96e-28 n 0.0
-queue_task 10000 4.96e-27 n 0.0
-queue_task 10000 4.96e-26 n 0.0
+queue_task 1 2.15e-24 n 0.0
+queue_task 10 1e-29 n 0.0
+queue_task 10 1e-28 n 0.0
+queue_task 10 1e-27 n 0.0
+queue_task 10 1e-26 n 0.0
+queue_task 10 1e-25 n 0.0
+queue_task 100 1e-29 n 0.0
+queue_task 100 1e-28 n 0.0
+queue_task 100 1e-27 n 0.0
+queue_task 100 1e-26 n 0.0
+queue_task 100 1e-25 n 0.0
+queue_task 1000 6e-29 n 0.0
+queue_task 1000 6e-28 n 0.0
+queue_task 1000 6e-27 n 0.0
+queue_task 1000 6e-26 n 0.0
+queue_task 1000 6e-25 n 0.0
+queue_task 10000 6e-28 n 0.0
+queue_task 10000 6e-27 n 0.0
+queue_task 10000 6e-26 n 0.0
+queue_task 10000 6e-25 n 0.0
+queue_task 10000 6e-24 n 0.0
 
 if ((failures > 0)); then
     printf 'Finished %d tasks with %d failure(s). See logs in %s\n' \
